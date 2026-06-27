@@ -56,7 +56,18 @@ def sarima(y_train: np.ndarray, y_test: np.ndarray,
 
 # ---- 4: global gradient-boosting model ----
 class GlobalGBM:
-    """One model for all series. Lag/calendar features make it series-aware."""
+    """
+    One model for all series. Lag/calendar features make it series-aware.
+
+    It predicts the **change** from the last hour's price, not the absolute price
+    (target = y - lag_1). The reconstructed forecast is therefore
+    `last_price + predicted_change` — i.e. a learned correction on top of the
+    naive forecast. This matters because series span very different price scales
+    (cents to dollars); training on absolute price lets the expensive series
+    dominate the loss and starves the cheap ones. Predicting the change puts the
+    model's worst case at "predict no change" = naive, so it can't blow up on a
+    cheap series the way an absolute-price model can.
+    """
 
     def __init__(self):
         self.model = HistGradientBoostingRegressor(
@@ -68,10 +79,11 @@ class GlobalGBM:
 
     def fit(self, feat_train: pd.DataFrame):
         X = feat_train[FEATURE_COLS]
-        y = feat_train["y"]
-        ok = X.notna().all(axis=1) & y.notna()
-        self.model.fit(X[ok], y[ok])
+        target = feat_train["y"] - feat_train["lag_1"]      # the change to learn
+        ok = X.notna().all(axis=1) & target.notna()
+        self.model.fit(X[ok], target[ok])
         return self
 
     def predict(self, feat: pd.DataFrame) -> np.ndarray:
-        return self.model.predict(feat[FEATURE_COLS])
+        change = self.model.predict(feat[FEATURE_COLS])
+        return feat["lag_1"].to_numpy() + change            # rebuild the price

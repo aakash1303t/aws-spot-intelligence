@@ -80,7 +80,8 @@ def _series(n: int, od: float, vol: float, crunch: float, base_frac: float,
 
 def generate(days: int = 90, freq: str = "h", seed: int = 7) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    end = pd.Timestamp.now("UTC").floor("h")
+    # Pinned anchor (not "now") so the dataset is identical on every machine/run.
+    end = pd.Timestamp("2026-06-21 06:00", tz="UTC")
     idx = pd.date_range(end=end, periods=days * 24, freq=freq)
     season = _seasonality(idx)
     rows = []
