@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from metrics import mase, mae
-from models import naive
+from models import naive, seasonal_naive
 
 TEST_HOURS = 24 * 14   # hold out the last 14 days
 
@@ -42,22 +42,42 @@ def evaluate_naive(df: pd.DataFrame, n_test: int = TEST_HOURS) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def evaluate_snaive(df: pd.DataFrame, n_test: int = TEST_HOURS, m: int = 24) -> pd.DataFrame:
+    """Per-series MASE/MAE for the seasonal-naive (same hour yesterday) forecast."""
+    rows = []
+    for sid, g in df.groupby("sid", sort=False):
+        y = g["spot_price"].to_numpy()
+        if len(y) < n_test + m + 1:
+            continue
+        y_train, y_test = y[:-n_test], y[-n_test:]
+        pred = seasonal_naive(y, n_test, m)            # y(t-24) for each test t
+        rows.append({
+            "sid": sid,
+            "family": g["family"].iloc[0],
+            "snaive_mae": mae(y_test, pred),
+            "snaive_mase": mase(y_test, pred, y_train, m=m),
+        })
+    return pd.DataFrame(rows)
+
+
 def main():
     df = load()
     n_series = df["sid"].nunique()
-    res = evaluate_naive(df)
-    res.to_csv("outputs/rung1_naive.csv", index=False)
 
-    print(f"series evaluated : {len(res)} / {n_series}")
+    r1 = evaluate_naive(df)
+    r2 = evaluate_snaive(df)
+    combined = r1.merge(r2[["sid", "snaive_mae", "snaive_mase"]], on="sid")
+    combined.to_csv("outputs/rung2_snaive.csv", index=False)
+
+    beats = (combined.snaive_mase < combined.naive_mase).sum()
+    print(f"series evaluated : {len(combined)} / {n_series}")
     print(f"test window      : last {TEST_HOURS} h ({TEST_HOURS // 24} days)\n")
-    print("naive baseline — MASE (vs seasonal-naive in-sample scale):")
-    print(f"  mean   {res.naive_mase.mean():.3f}")
-    print(f"  median {res.naive_mase.median():.3f}")
-    print(f"  range  {res.naive_mase.min():.3f} – {res.naive_mase.max():.3f}\n")
-    print("by family (mean MASE):")
-    print(res.groupby("family").naive_mase.mean().round(3).to_string())
-    print("\nInterpretation: MASE ~1 means the naive forecast is about as good as")
-    print("seasonal-naive; >1 means worse. This is the bar the next rungs must beat.")
+    print(f"{'model':<16}{'mean MASE':>12}{'median MASE':>14}")
+    print(f"{'naive':<16}{r1.naive_mase.mean():>12.3f}{r1.naive_mase.median():>14.3f}")
+    print(f"{'seasonal naive':<16}{r2.snaive_mase.mean():>12.3f}{r2.snaive_mase.median():>14.3f}\n")
+    print(f"seasonal naive beats naive on {beats} / {len(combined)} series")
+    print("\nReading it: if seasonal naive's MASE is higher, the daily cycle adds less")
+    print("than short-term persistence at a 1-hour horizon — last value still wins.")
 
 
 if __name__ == "__main__":
