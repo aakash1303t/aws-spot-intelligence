@@ -27,25 +27,31 @@ def seasonal_naive(history: np.ndarray, n_test: int, m: int = 24) -> np.ndarray:
     return history[-n_test - m: -m]
 
 
-# ---- 3: SARIMA, fit once then filtered forward over the test window ----
-def sarima_rolling(y_train: np.ndarray, y_test: np.ndarray,
-                   order=(1, 0, 1), seasonal=(1, 0, 1, 24)) -> np.ndarray:
+# ---- 3: SARIMA, one-step-ahead over the test window (leakage-free, fast) ----
+def sarima(y_train: np.ndarray, y_test: np.ndarray,
+           order=(1, 0, 1), seasonal=(1, 0, 1, 24)) -> np.ndarray:
     """
-    Honest 1-step-ahead: fit on train, then walk through the test window feeding
-    each observed value back in (state updates, no refit, no peeking at the point
-    being predicted).
+    Honest 1-step-ahead forecasts for the test window.
+
+    Parameters are estimated on the TRAIN data only. Those fixed parameters are
+    then applied to the full series and we read off the in-sample 1-step-ahead
+    predictions over the test span (dynamic=False), each of which uses only
+    actual values up to t-1. So: no parameter leakage, no peeking at the target,
+    and one filter pass instead of a slow refit loop.
     """
     from statsmodels.tsa.statespace.sarimax import SARIMAX
+    y_train = np.asarray(y_train, float)
+    y_full = np.concatenate([y_train, np.asarray(y_test, float)])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        res = SARIMAX(y_train, order=order, seasonal_order=seasonal,
-                      enforce_stationarity=False, enforce_invertibility=False
-                      ).fit(disp=False, maxiter=50, method="lbfgs")
-        preds = []
-        for actual in y_test:
-            preds.append(float(res.forecast(steps=1)[0]))   # predict next
-            res = res.append([actual], refit=False)         # then reveal truth
-    return np.asarray(preds)
+        fitted = SARIMAX(y_train, order=order, seasonal_order=seasonal,
+                         enforce_stationarity=False, enforce_invertibility=False
+                         ).fit(disp=False, maxiter=50, method="lbfgs")
+        full = fitted.apply(y_full)                          # reuse train params
+        pred = full.get_prediction(start=len(y_train),
+                                   end=len(y_full) - 1,
+                                   dynamic=False).predicted_mean
+    return np.asarray(pred)
 
 
 # ---- 4: global gradient-boosting model ----
