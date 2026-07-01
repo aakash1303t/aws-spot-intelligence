@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# AWS credentials — never commit these
+.aws/
+*.pem
+credentials
+
+# Generated data (the app regenerates this deterministically from a pinned seed/date)
+# Uncomment the next line if you prefer NOT to commit the parquet:
+# data/spot_prices.parquet
